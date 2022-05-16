@@ -33,7 +33,7 @@ enum Keys
 	K_RIGHT,
 	K_ESCAPE,
 
-	K_NUM_KEYS
+	K_NUM
 };
 
 static bool keys[5] = { false };
@@ -61,14 +61,30 @@ bool Pos_Eq(pos_t a, pos_t b)
 	return false;
 }
 
-#define SNAKE_MAX_LENGTH 200
+pos_t CatchOutOfBounds(pos_t pos, uint8_t w, uint8_t h)
+{
+	pos_t result = pos;
+
+	if (result.x < 0)
+		result.x = w - 1;
+	else if (result.x >= w)
+		result.x = 0;
+	else if (result.y < 0)
+		result.y = h - 1;
+	else if (result.y >= h)
+		result.y = 0;
+
+	return result;
+}
+
+#define BOARD_AREA (BOARD_WIDTH) * (BOARD_HEIGHT)
 
 typedef struct
 {
 	pos_t head;
 	uint8_t bodyIndex;
 	pos_t facing;
-	pos_t body[SNAKE_MAX_LENGTH];
+	pos_t body[BOARD_AREA];
 } snake_t;
 
 enum Entities
@@ -77,8 +93,30 @@ enum Entities
 	E_SNAKE,
 	E_APPLE,
 
-	NUM_ENTITIES
+	E_NUM
 };
+
+// This isnt great but it's the best I could think of
+void PlaceApple(uint8_t board[BOARD_WIDTH][BOARD_HEIGHT])
+{
+	uint8_t idx = 0;
+	pos_t avalible[BOARD_AREA] = { { 0, 0 } };
+
+	for (size_t y = 0; y < BOARD_HEIGHT; y++)
+	{
+		for (size_t x = 0; x < BOARD_WIDTH; x++)
+		{
+			if (board[x][y] == E_NONE)
+			{
+				avalible[idx] = (pos_t){ (int8_t)x, (int8_t)y };
+				idx++;
+			}
+		}
+	}
+	
+	pos_t newApple = avalible[rand() % idx];
+	board[newApple.x][newApple.y] = E_APPLE;
+}
 
 const pos_t DIR_NONE	= { 0,  0 };
 const pos_t DIR_NORTH	= { 0, -1 };
@@ -124,12 +162,7 @@ int main(int argc, char* argv[])
 		board[snake.body[i].x][snake.body[i].y] = E_SNAKE;
 	}
 
-	pos_t newApple = { rand() % BOARD_WIDTH, rand() % BOARD_HEIGHT };
-	while (board[newApple.x][newApple.y] != E_NONE)  // I'm aware that this is a terrible way to do this
-	{
-		newApple = (pos_t){ rand() % BOARD_WIDTH, rand() % BOARD_HEIGHT };
-	}
-	board[newApple.x][newApple.y] = E_APPLE;
+	PlaceApple(board);
 
 	bool stop = false;
 	bool quit = false;
@@ -188,11 +221,8 @@ int main(int argc, char* argv[])
 				snake.facing = DIR_SOUTH;
 			else if (keys[K_RIGHT] && !Pos_Eq(snake.facing, DIR_WEST))
 				snake.facing = DIR_EAST;
-		}
 
-		while (accumulator >= deltaTime)
-		{
-			if (!stop)
+			while (accumulator >= deltaTime)
 			{
 				for (size_t i = snake.bodyIndex; i > 0; i--)
 				{
@@ -208,38 +238,20 @@ int main(int argc, char* argv[])
 					}
 					else // head
 					{
-						snake.head = Pos_Add(snake.head, snake.facing);
-
-						if (snake.head.x < 0)
-							snake.head.x = BOARD_WIDTH - 1;
-
-						if (snake.head.x >= BOARD_WIDTH)
-							snake.head.x = 0;
-
-						if (snake.head.y < 0)
-							snake.head.y = BOARD_HEIGHT - 1;
-
-						if (snake.head.y >= BOARD_HEIGHT)
-							snake.head.y = 0;
-
+						snake.head = CatchOutOfBounds(Pos_Add(snake.head, snake.facing), BOARD_WIDTH, BOARD_HEIGHT);
 						snake.body[idx] = snake.head;
 
 						if (board[snake.head.x][snake.head.y] == E_APPLE)
 						{
-							if (snake.bodyIndex < SNAKE_MAX_LENGTH)
+							if (snake.bodyIndex < BOARD_AREA)
 							{
-								snake.body[snake.bodyIndex + 1] = Pos_Add(snake.body[snake.bodyIndex], Pos_Sub(snake.body[snake.bodyIndex], snake.body[snake.bodyIndex - 1]));
+								snake.body[snake.bodyIndex] = CatchOutOfBounds(Pos_Add(snake.body[snake.bodyIndex - 1], Pos_Sub(snake.body[snake.bodyIndex - 1], snake.body[snake.bodyIndex - 2])), BOARD_WIDTH, BOARD_HEIGHT);
 								snake.bodyIndex++;
 
-								pos_t newApple = { rand() % BOARD_WIDTH, rand() % BOARD_HEIGHT };  // Copypasted code! yuck!
-								while (board[newApple.x][newApple.y] != E_NONE)
-								{
-									newApple = (pos_t){ rand() % BOARD_WIDTH, rand() % BOARD_HEIGHT };
-								}
-								board[newApple.x][newApple.y] = E_APPLE;
+								PlaceApple(board);
 							}
 
-							if (snake.bodyIndex >= SNAKE_MAX_LENGTH) // not else so win triggers after last apple pickup
+							if (snake.bodyIndex >= BOARD_AREA) // not else so win triggers after last apple pickup
 							{
 								printf_s("You win!"); // No text support in pure SDL :(
 								snake.facing = DIR_NONE;
@@ -256,42 +268,42 @@ int main(int argc, char* argv[])
 					}
 					board[snake.body[idx].x][snake.body[idx].y] = E_SNAKE;
 				}
-			}
 
-			SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, SDL_ALPHA_OPAQUE);
-			SDL_RenderClear(renderer);
+				SDL_SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, SDL_ALPHA_OPAQUE);
+				SDL_RenderClear(renderer);
 
-			for (size_t y = 0; y < BOARD_HEIGHT; y++)
-			{
-				for (size_t x = 0; x < BOARD_WIDTH; x++)
+				for (size_t y = 0; y < BOARD_HEIGHT; y++)
 				{
-					switch (board[x][y])
+					for (size_t x = 0; x < BOARD_WIDTH; x++)
 					{
-						case E_NONE: { continue; } break;
-						case E_SNAKE:
+						switch (board[x][y])
 						{
-							SDL_Rect rect = { (int)x * SQUARE_SIZE, (int)y * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE };
-							SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
-							SDL_RenderFillRect(renderer, &rect);
-						} break;
-						case E_APPLE:
-						{
-							SDL_Rect rect = { (int)x * SQUARE_SIZE, (int)y * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE };
-							SDL_SetRenderDrawColor(renderer, 0xFF, 0x00, 0x00, SDL_ALPHA_OPAQUE);
-							SDL_RenderFillRect(renderer, &rect);
-						} break;
-						default:
-						{
-							fprintf_s(stderr, "Unknown entity type");
-							exit(1);
+							case E_NONE: { continue; } break;
+							case E_SNAKE:
+							{
+								SDL_Rect rect = { (int)x * SQUARE_SIZE, (int)y * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE };
+								SDL_SetRenderDrawColor(renderer, 0x00, 0x00, 0x00, SDL_ALPHA_OPAQUE);
+								SDL_RenderFillRect(renderer, &rect);
+							} break;
+							case E_APPLE:
+							{
+								SDL_Rect rect = { (int)x * SQUARE_SIZE, (int)y * SQUARE_SIZE, SQUARE_SIZE, SQUARE_SIZE };
+								SDL_SetRenderDrawColor(renderer, 0xFF, 0x00, 0x00, SDL_ALPHA_OPAQUE);
+								SDL_RenderFillRect(renderer, &rect);
+							} break;
+							default:
+							{
+								fprintf_s(stderr, "Unknown entity type");
+								exit(1);
+							}
 						}
 					}
 				}
+
+				SDL_RenderPresent(renderer);
+
+				accumulator -= deltaTime;
 			}
-
-			SDL_RenderPresent(renderer);
-
-			accumulator -= deltaTime;
 		}
 	}
 
